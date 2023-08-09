@@ -1,243 +1,242 @@
-import * as util from './core/util';
-import Group, { GroupLike } from './graphic/Group';
-import Element from './Element';
+// Storage.ts（数据模型）：用于存储所有需要绘制的图形数据，并且提供相关数据的LRU缓存机制，提供数据的CURD管理；
+// 在 Zrender 实例化的时候， Storage 的实例分别作用于：
+
+// Painter 的实例化
+// Handler 的实例化
+// add 方法中 addRoot(el)
+// remove 方法中delRoot(el)
+// clear 方法中 delRoot()
+// dispose 方法中 dispose()
+
+import * as util from './core/util'
+import Group, { GroupLike } from './graphic/Group'
+import Element from './Element'
 
 // Use timsort because in most case elements are partially sorted
 // https://jsfiddle.net/pissang/jr4x7mdm/8/
-import timsort from './core/timsort';
-import Displayable from './graphic/Displayable';
-import Path from './graphic/Path';
-import { REDRAW_BIT } from './graphic/constants';
+import timsort from './core/timsort'
+import Displayable from './graphic/Displayable'
+import Path from './graphic/Path'
+import { REDRAW_BIT } from './graphic/constants'
 
-let invalidZErrorLogged = false;
+let invalidZErrorLogged = false
 function logInvalidZError() {
-    if (invalidZErrorLogged) {
-        return;
-    }
-    invalidZErrorLogged = true;
-    console.warn('z / z2 / zlevel of displayable is invalid, which may cause unexpected errors');
+  if (invalidZErrorLogged) {
+    return
+  }
+  invalidZErrorLogged = true
+  console.warn('z / z2 / zlevel of displayable is invalid, which may cause unexpected errors')
 }
 
 function shapeCompareFunc(a: Displayable, b: Displayable) {
-    if (a.zlevel === b.zlevel) {
-        if (a.z === b.z) {
-            return a.z2 - b.z2;
-        }
-        return a.z - b.z;
+  if (a.zlevel === b.zlevel) {
+    if (a.z === b.z) {
+      return a.z2 - b.z2
     }
-    return a.zlevel - b.zlevel;
+    return a.z - b.z
+  }
+  return a.zlevel - b.zlevel
 }
 
 export default class Storage {
+  // zender add 进来的图形或者分组加到这里
+  private _roots: Element[] = []
 
-    private _roots: Element[] = []
+  // 图形的绘制队列，元素对象实例存储在_displayableList数组中，每次绘制时会根据zlevel->z->插入顺序进行排序
+  private _displayList: Displayable[] = []
 
-    private _displayList: Displayable[] = []
+  // 用这种方式来替代 push，arr[arr.length] = "hello world";
+  private _displayListLen = 0
 
-    private _displayListLen = 0
+  traverse<T>(cb: (this: T, el: Element) => void, context?: T) {
+    for (let i = 0; i < this._roots.length; i++) {
+      this._roots[i].traverse(cb, context)
+    }
+  }
 
-    traverse<T>(
-        cb: (this: T, el: Element) => void,
-        context?: T
-    ) {
-        for (let i = 0; i < this._roots.length; i++) {
-            this._roots[i].traverse(cb, context);
-        }
+  /**
+   * get a list of elements to be rendered
+   *
+   * @param {boolean} update whether to update elements before return
+   * @param {DisplayParams} params options
+   * @return {Displayable[]} a list of elements
+   */
+  getDisplayList(update?: boolean, includeIgnore?: boolean): Displayable[] {
+    includeIgnore = includeIgnore || false
+    const displayList = this._displayList
+    // If displaylist is not created yet. Update force
+    if (update || !displayList.length) {
+      this.updateDisplayList(includeIgnore)
+    }
+    return displayList
+  }
+
+  /**
+   * 更新图形的绘制队列。
+   * 每次绘制前都会调用，该方法会先深度优先遍历整个树，更新所有Group和Shape的变换并且把所有可见的Shape保存到数组中，
+   * 最后根据绘制的优先级（zlevel > z > 插入顺序）排序得到绘制队列
+   */
+  updateDisplayList(includeIgnore?: boolean) {
+    this._displayListLen = 0
+
+    const roots = this._roots
+    const displayList = this._displayList
+    for (let i = 0, len = roots.length; i < len; i++) {
+      this._updateAndAddDisplayable(roots[i], null, includeIgnore)
     }
 
-    /**
-     * get a list of elements to be rendered
-     *
-     * @param {boolean} update whether to update elements before return
-     * @param {DisplayParams} params options
-     * @return {Displayable[]} a list of elements
-     */
-    getDisplayList(update?: boolean, includeIgnore?: boolean): Displayable[] {
-        includeIgnore = includeIgnore || false;
-        const displayList = this._displayList;
-        // If displaylist is not created yet. Update force
-        if (update || !displayList.length) {
-            this.updateDisplayList(includeIgnore);
-        }
-        return displayList;
+    displayList.length = this._displayListLen
+
+    timsort(displayList, shapeCompareFunc)
+  }
+
+  // 更新 Displayable 数据， 处理剪切相关，然后向 _displayList 中增加数据
+  private _updateAndAddDisplayable(el: Element, clipPaths: Path[], includeIgnore?: boolean) {
+    if (el.ignore && !includeIgnore) {
+      return
     }
 
-    /**
-     * 更新图形的绘制队列。
-     * 每次绘制前都会调用，该方法会先深度优先遍历整个树，更新所有Group和Shape的变换并且把所有可见的Shape保存到数组中，
-     * 最后根据绘制的优先级（zlevel > z > 插入顺序）排序得到绘制队列
-     */
-    updateDisplayList(includeIgnore?: boolean) {
-        this._displayListLen = 0;
+    el.beforeUpdate()
+    el.update()
+    el.afterUpdate()
 
-        const roots = this._roots;
-        const displayList = this._displayList;
-        for (let i = 0, len = roots.length; i < len; i++) {
-            this._updateAndAddDisplayable(roots[i], null, includeIgnore);
-        }
+    const userSetClipPath = el.getClipPath()
 
-        displayList.length = this._displayListLen;
+    if (el.ignoreClip) {
+      clipPaths = null
+    } else if (userSetClipPath) {
+      // FIXME 效率影响
+      if (clipPaths) {
+        clipPaths = clipPaths.slice()
+      } else {
+        clipPaths = []
+      }
 
-        timsort(displayList, shapeCompareFunc);
+      let currentClipPath = userSetClipPath
+      let parentClipPath = el
+      // Recursively add clip path
+      while (currentClipPath) {
+        // clipPath 的变换是基于使用这个 clipPath 的元素
+        // TODO: parent should be group type.
+        currentClipPath.parent = parentClipPath as Group
+        currentClipPath.updateTransform()
+
+        clipPaths.push(currentClipPath)
+
+        parentClipPath = currentClipPath
+        currentClipPath = currentClipPath.getClipPath()
+      }
     }
 
-    private _updateAndAddDisplayable(
-        el: Element,
-        clipPaths: Path[],
-        includeIgnore?: boolean
-    ) {
-        if (el.ignore && !includeIgnore) {
-            return;
+    // ZRText and Group and combining morphing Path may use children
+    if ((el as GroupLike).childrenRef) {
+      const children = (el as GroupLike).childrenRef()
+
+      for (let i = 0; i < children.length; i++) {
+        const child = children[i]
+
+        // Force to mark as dirty if group is dirty
+        if (el.__dirty) {
+          child.__dirty |= REDRAW_BIT
         }
 
-        el.beforeUpdate();
-        el.update();
-        el.afterUpdate();
+        this._updateAndAddDisplayable(child, clipPaths, includeIgnore)
+      }
 
-        const userSetClipPath = el.getClipPath();
+      // Mark group clean here
+      el.__dirty = 0
+    } else {
+      const disp = el as Displayable
+      // Element is displayable
+      if (clipPaths && clipPaths.length) {
+        disp.__clipPaths = clipPaths
+      } else if (disp.__clipPaths && disp.__clipPaths.length > 0) {
+        disp.__clipPaths = []
+      }
 
-        if (el.ignoreClip) {
-            clipPaths = null;
-        }
-        else if (userSetClipPath) {
+      // Avoid invalid z, z2, zlevel cause sorting error.
+      if (isNaN(disp.z)) {
+        logInvalidZError()
+        disp.z = 0
+      }
+      if (isNaN(disp.z2)) {
+        logInvalidZError()
+        disp.z2 = 0
+      }
+      if (isNaN(disp.zlevel)) {
+        logInvalidZError()
+        disp.zlevel = 0
+      }
 
-            // FIXME 效率影响
-            if (clipPaths) {
-                clipPaths = clipPaths.slice();
-            }
-            else {
-                clipPaths = [];
-            }
-
-            let currentClipPath = userSetClipPath;
-            let parentClipPath = el;
-            // Recursively add clip path
-            while (currentClipPath) {
-                // clipPath 的变换是基于使用这个 clipPath 的元素
-                // TODO: parent should be group type.
-                currentClipPath.parent = parentClipPath as Group;
-                currentClipPath.updateTransform();
-
-                clipPaths.push(currentClipPath);
-
-                parentClipPath = currentClipPath;
-                currentClipPath = currentClipPath.getClipPath();
-            }
-        }
-
-        // ZRText and Group and combining morphing Path may use children
-        if ((el as GroupLike).childrenRef) {
-            const children = (el as GroupLike).childrenRef();
-
-            for (let i = 0; i < children.length; i++) {
-                const child = children[i];
-
-                // Force to mark as dirty if group is dirty
-                if (el.__dirty) {
-                    child.__dirty |= REDRAW_BIT;
-                }
-
-                this._updateAndAddDisplayable(child, clipPaths, includeIgnore);
-            }
-
-            // Mark group clean here
-            el.__dirty = 0;
-
-        }
-        else {
-            const disp = el as Displayable;
-            // Element is displayable
-            if (clipPaths && clipPaths.length) {
-                disp.__clipPaths = clipPaths;
-            }
-            else if (disp.__clipPaths && disp.__clipPaths.length > 0) {
-                disp.__clipPaths = [];
-            }
-
-            // Avoid invalid z, z2, zlevel cause sorting error.
-            if (isNaN(disp.z)) {
-                logInvalidZError();
-                disp.z = 0;
-            }
-            if (isNaN(disp.z2)) {
-                logInvalidZError();
-                disp.z2 = 0;
-            }
-            if (isNaN(disp.zlevel)) {
-                logInvalidZError();
-                disp.zlevel = 0;
-            }
-
-            this._displayList[this._displayListLen++] = disp;
-        }
-
-        // Add decal
-        const decalEl = (el as Path).getDecalElement && (el as Path).getDecalElement();
-        if (decalEl) {
-            this._updateAndAddDisplayable(decalEl, clipPaths, includeIgnore);
-        }
-
-        // Add attached text element and guide line.
-        const textGuide = el.getTextGuideLine();
-        if (textGuide) {
-            this._updateAndAddDisplayable(textGuide, clipPaths, includeIgnore);
-        }
-
-        const textEl = el.getTextContent();
-        if (textEl) {
-            this._updateAndAddDisplayable(textEl, clipPaths, includeIgnore);
-        }
+      this._displayList[this._displayListLen++] = disp
     }
 
-    /**
-     * 添加图形(Displayable)或者组(Group)到根节点
-     */
-    addRoot(el: Element) {
-        if (el.__zr && el.__zr.storage === this) {
-            return;
-        }
-
-        this._roots.push(el);
+    // Add decal
+    const decalEl = (el as Path).getDecalElement && (el as Path).getDecalElement()
+    if (decalEl) {
+      this._updateAndAddDisplayable(decalEl, clipPaths, includeIgnore)
     }
 
-    /**
-     * 删除指定的图形(Displayable)或者组(Group)
-     * @param el
-     */
-    delRoot(el: Element | Element[]) {
-
-        if (el instanceof Array) {
-            for (let i = 0, l = el.length; i < l; i++) {
-                this.delRoot(el[i]);
-            }
-            return;
-        }
-
-        const idx = util.indexOf(this._roots, el);
-        if (idx >= 0) {
-            this._roots.splice(idx, 1);
-        }
+    // Add attached text element and guide line.
+    const textGuide = el.getTextGuideLine()
+    if (textGuide) {
+      this._updateAndAddDisplayable(textGuide, clipPaths, includeIgnore)
     }
 
-    delAllRoots() {
-        this._roots = [];
-        this._displayList = [];
-        this._displayListLen = 0;
+    const textEl = el.getTextContent()
+    if (textEl) {
+      this._updateAndAddDisplayable(textEl, clipPaths, includeIgnore)
+    }
+  }
 
-        return;
+  /**
+   * 添加图形(Displayable)或者组(Group)到根节点
+   */
+  addRoot(el: Element) {
+    if (el.__zr && el.__zr.storage === this) {
+      return
     }
 
-    getRoots() {
-        return this._roots;
+    this._roots.push(el)
+  }
+
+  /**
+   * 删除指定的图形(Displayable)或者组(Group)
+   * @param el
+   */
+  delRoot(el: Element | Element[]) {
+    if (el instanceof Array) {
+      for (let i = 0, l = el.length; i < l; i++) {
+        this.delRoot(el[i])
+      }
+      return
     }
 
-    /**
-     * 清空并且释放Storage
-     */
-    dispose() {
-        this._displayList = null;
-        this._roots = null;
+    const idx = util.indexOf(this._roots, el)
+    if (idx >= 0) {
+      this._roots.splice(idx, 1)
     }
+  }
 
-    displayableSortFunc = shapeCompareFunc
+  delAllRoots() {
+    this._roots = []
+    this._displayList = []
+    this._displayListLen = 0
+
+    return
+  }
+
+  getRoots() {
+    return this._roots
+  }
+
+  /**
+   * 清空并且释放Storage
+   */
+  dispose() {
+    this._displayList = null
+    this._roots = null
+  }
+
+  displayableSortFunc = shapeCompareFunc
 }

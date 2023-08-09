@@ -6,21 +6,21 @@
 // http://iosoteric.com/additive-animations-animatewithduration-in-ios-8/
 // https://developer.apple.com/videos/wwdc2014/#236
 
-import Eventful from '../core/Eventful';
-import requestAnimationFrame from './requestAnimationFrame';
-import Animator from './Animator';
-import Clip from './Clip';
+import Eventful from '../core/Eventful'
+import requestAnimationFrame from './requestAnimationFrame'
+import Animator from './Animator'
+import Clip from './Clip'
 
 export function getTime() {
-    return new Date().getTime();
+  return new Date().getTime()
 }
 
 interface Stage {
-    update?: () => void
+  update?: () => void
 }
 
 interface AnimationOption {
-    stage?: Stage
+  stage?: Stage
 }
 /**
  * @example
@@ -42,226 +42,220 @@ interface AnimationOption {
  */
 
 export default class Animation extends Eventful {
+  stage: Stage
 
-    stage: Stage
+  // 双端链表保存帧动画
+  private _head: Clip
+  private _tail: Clip
 
-    // Use linked list to store clip
-    private _head: Clip
-    private _tail: Clip
+  private _running = false
 
-    private _running = false
+  private _time = 0
+  private _pausedTime = 0
+  private _pauseStart = 0
 
-    private _time = 0
-    private _pausedTime = 0
-    private _pauseStart = 0
+  private _paused = false
 
-    private _paused = false;
+  constructor(opts?: AnimationOption) {
+    super()
 
-    constructor(opts?: AnimationOption) {
-        super();
+    opts = opts || {}
 
-        opts = opts || {};
+    this.stage = opts.stage || {}
+  }
 
-        this.stage = opts.stage || {};
+  /**
+   * Add clip
+   */
+  addClip(clip: Clip) {
+    if (clip.animation) {
+      // Clip has been added
+      this.removeClip(clip)
     }
 
-    /**
-     * Add clip
-     */
-    addClip(clip: Clip) {
-        if (clip.animation) {
-            // Clip has been added
-            this.removeClip(clip);
-        }
-
-        if (!this._head) {
-            this._head = this._tail = clip;
-        }
-        else {
-            this._tail.next = clip;
-            clip.prev = this._tail;
-            clip.next = null;
-            this._tail = clip;
-        }
-        clip.animation = this;
+    if (!this._head) {
+      this._head = this._tail = clip
+    } else {
+      this._tail.next = clip
+      clip.prev = this._tail
+      clip.next = null
+      this._tail = clip
     }
-    /**
-     * Add animator
-     */
-    addAnimator(animator: Animator<any>) {
-        animator.animation = this;
-        const clip = animator.getClip();
-        if (clip) {
-            this.addClip(clip);
-        }
+    clip.animation = this
+  }
+  /**
+   * Add animator
+   */
+  addAnimator(animator: Animator<any>) {
+    animator.animation = this
+    const clip = animator.getClip()
+    if (clip) {
+      this.addClip(clip)
     }
-    /**
-     * Delete animation clip
-     */
-    removeClip(clip: Clip) {
-        if (!clip.animation) {
-            return;
-        }
-        const prev = clip.prev;
-        const next = clip.next;
-        if (prev) {
-            prev.next = next;
-        }
-        else {
-            // Is head
-            this._head = next;
-        }
-        if (next) {
-            next.prev = prev;
-        }
-        else {
-            // Is tail
-            this._tail = prev;
-        }
-        clip.next = clip.prev = clip.animation = null;
+  }
+  /**
+   * Delete animation clip
+   */
+  removeClip(clip: Clip) {
+    if (!clip.animation) {
+      return
     }
-
-    /**
-     * Delete animation clip
-     */
-    removeAnimator(animator: Animator<any>) {
-        const clip = animator.getClip();
-        if (clip) {
-            this.removeClip(clip);
-        }
-        animator.animation = null;
+    const prev = clip.prev
+    const next = clip.next
+    if (prev) {
+      prev.next = next
+    } else {
+      // Is head
+      this._head = next
     }
+    if (next) {
+      next.prev = prev
+    } else {
+      // Is tail
+      this._tail = prev
+    }
+    clip.next = clip.prev = clip.animation = null
+  }
 
-    update(notTriggerFrameAndStageUpdate?: boolean) {
-        const time = getTime() - this._pausedTime;
-        const delta = time - this._time;
-        let clip = this._head;
+  /**
+   * Delete animation clip
+   */
+  removeAnimator(animator: Animator<any>) {
+    const clip = animator.getClip()
+    if (clip) {
+      this.removeClip(clip)
+    }
+    animator.animation = null
+  }
 
-        while (clip) {
-            // Save the nextClip before step.
-            // So the loop will not been affected if the clip is removed in the callback
-            const nextClip = clip.next;
-            let finished = clip.step(time, delta);
-            if (finished) {
-                clip.ondestroy();
-                this.removeClip(clip);
-                clip = nextClip;
-            }
-            else {
-                clip = nextClip;
-            }
-        }
+  update(notTriggerFrameAndStageUpdate?: boolean) {
+    const time = getTime() - this._pausedTime
+    const delta = time - this._time
+    let clip = this._head
 
-        this._time = time;
-
-        if (!notTriggerFrameAndStageUpdate) {
-
-            // 'frame' should be triggered before stage, because upper application
-            // depends on the sequence (e.g., echarts-stream and finish
-            // event judge)
-            this.trigger('frame', delta);
-
-            this.stage.update && this.stage.update();
-        }
+    while (clip) {
+      // Save the nextClip before step.
+      // So the loop will not been affected if the clip is removed in the callback
+      const nextClip = clip.next
+      let finished = clip.step(time, delta)
+      if (finished) {
+        clip.ondestroy()
+        this.removeClip(clip)
+        clip = nextClip
+      } else {
+        clip = nextClip
+      }
     }
 
-    _startLoop() {
-        const self = this;
+    this._time = time
 
-        this._running = true;
+    if (!notTriggerFrameAndStageUpdate) {
+      // 'frame' should be triggered before stage, because upper application
+      // depends on the sequence (e.g., echarts-stream and finish
+      // event judge)
+      this.trigger('frame', delta)
 
-        function step() {
-            if (self._running) {
-                requestAnimationFrame(step);
-                !self._paused && self.update();
-            }
-        }
+      this.stage.update && this.stage.update()
+    }
+  }
 
-        requestAnimationFrame(step);
+  _startLoop() {
+    const self = this
+
+    this._running = true
+
+    function step() {
+      if (self._running) {
+        requestAnimationFrame(step)
+        !self._paused && self.update()
+      }
     }
 
-    /**
-     * Start animation.
-     */
-    start() {
-        if (this._running) {
-            return;
-        }
+    requestAnimationFrame(step)
+  }
 
-        this._time = getTime();
-        this._pausedTime = 0;
-
-        this._startLoop();
+  /**
+   * Start animation.
+   */
+  start() {
+    if (this._running) {
+      return
     }
 
-    /**
-     * Stop animation.
-     */
-    stop() {
-        this._running = false;
+    this._time = getTime()
+    this._pausedTime = 0
+
+    this._startLoop()
+  }
+
+  /**
+   * Stop animation.
+   */
+  stop() {
+    this._running = false
+  }
+
+  /**
+   * Pause animation.
+   */
+  pause() {
+    if (!this._paused) {
+      this._pauseStart = getTime()
+      this._paused = true
+    }
+  }
+
+  /**
+   * Resume animation.
+   */
+  resume() {
+    if (this._paused) {
+      this._pausedTime += getTime() - this._pauseStart
+      this._paused = false
+    }
+  }
+
+  /**
+   * Clear animation.
+   */
+  clear() {
+    let clip = this._head
+
+    while (clip) {
+      let nextClip = clip.next
+      clip.prev = clip.next = clip.animation = null
+      clip = nextClip
     }
 
-    /**
-     * Pause animation.
-     */
-    pause() {
-        if (!this._paused) {
-            this._pauseStart = getTime();
-            this._paused = true;
-        }
+    this._head = this._tail = null
+  }
+
+  /**
+   * Whether animation finished.
+   */
+  isFinished() {
+    return this._head == null
+  }
+
+  /**
+   * Creat animator for a target, whose props can be animated.
+   */
+  // TODO Gap
+  animate<T>(
+    target: T,
+    options: {
+      loop?: boolean // Whether loop animation
     }
+  ) {
+    options = options || {}
 
-    /**
-     * Resume animation.
-     */
-    resume() {
-        if (this._paused) {
-            this._pausedTime += getTime() - this._pauseStart;
-            this._paused = false;
-        }
-    }
+    // Start animation loop
+    this.start()
 
-    /**
-     * Clear animation.
-     */
-    clear() {
-        let clip = this._head;
+    const animator = new Animator(target, options.loop)
 
-        while (clip) {
-            let nextClip = clip.next;
-            clip.prev = clip.next = clip.animation = null;
-            clip = nextClip;
-        }
+    this.addAnimator(animator)
 
-        this._head = this._tail = null;
-    }
-
-    /**
-     * Whether animation finished.
-     */
-    isFinished() {
-        return this._head == null;
-    }
-
-    /**
-     * Creat animator for a target, whose props can be animated.
-     */
-    // TODO Gap
-    animate<T>(target: T, options: {
-        loop?: boolean  // Whether loop animation
-    }) {
-        options = options || {};
-
-        // Start animation loop
-        this.start();
-
-        const animator = new Animator(
-            target,
-            options.loop
-        );
-
-        this.addAnimator(animator);
-
-        return animator;
-    }
+    return animator
+  }
 }
