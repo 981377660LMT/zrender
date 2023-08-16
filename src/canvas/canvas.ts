@@ -1,4 +1,4 @@
-import {registerPainter} from '../zrender';
-import Painter from './Painter';
+import { registerPainter } from '../zrender'
+import Painter from './Painter'
 
-registerPainter('canvas', Painter);
+registerPainter('canvas', Painter)

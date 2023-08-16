@@ -1,3 +1,11 @@
+// 创建 canvas
+
+// 调用情况：
+
+// Painter 类构造函数中，如果是单层应用时， id 为 canvas 对象
+// Painter 类 getLayer 方法，在 get 时，如果没有 layer 会调用创建 id 为字符串
+// Painter 类 getRenderedCanvas 方法， id 为 'image'
+
 import * as util from '../core/util'
 import { devicePixelRatio } from '../config'
 import { ImagePatternObject } from '../graphic/Pattern'
@@ -417,7 +425,6 @@ export default class Layer extends Eventful {
               width: width,
               height: height
             })
-
           ;(clearColor as InnerGradientObject).__canvasGradient = clearColorGradientOrPattern
           ;(clearColor as InnerGradientObject).__width = width
           ;(clearColor as InnerGradientObject).__height = height

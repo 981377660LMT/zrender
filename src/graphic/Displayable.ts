@@ -1,4 +1,4 @@
-// 继承自 Element ，可见元素，在 Element 之上增加了 style ，用于控制元素的样式。
+// Displayable 继承自 Element ，可见元素，在 Element 之上增加了 style ，用于控制元素的样式。
 
 /**
  * Base class of all displayable graphic objects

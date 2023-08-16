@@ -1,16 +1,15 @@
+import env from './env'
+import { buildTransformer } from './fourPointsTransform'
+import { Dictionary } from './types'
 
-import env from './env';
-import {buildTransformer} from './fourPointsTransform';
-import {Dictionary} from './types';
-
-const EVENT_SAVED_PROP = '___zrEVENTSAVED';
-const _calcOut: number[] = [];
+const EVENT_SAVED_PROP = '___zrEVENTSAVED'
+const _calcOut: number[] = []
 
 type SavedInfo = {
-    markers?: HTMLDivElement[]
-    trans?: ReturnType<typeof buildTransformer>
-    invTrans?: ReturnType<typeof buildTransformer>
-    srcCoords?: number[]
+  markers?: HTMLDivElement[]
+  trans?: ReturnType<typeof buildTransformer>
+  invTrans?: ReturnType<typeof buildTransformer>
+  srcCoords?: number[]
 }
 
 /**
@@ -47,14 +46,16 @@ type SavedInfo = {
  * @return {boolean} Whether transform successfully.
  */
 export function transformLocalCoord(
-    out: number[],
-    elFrom: HTMLElement,
-    elTarget: HTMLElement,
-    inX: number,
-    inY: number
+  out: number[],
+  elFrom: HTMLElement,
+  elTarget: HTMLElement,
+  inX: number,
+  inY: number
 ) {
-    return transformCoordWithViewport(_calcOut, elFrom, inX, inY, true)
-        && transformCoordWithViewport(out, elTarget, _calcOut[0], _calcOut[1]);
+  return (
+    transformCoordWithViewport(_calcOut, elFrom, inX, inY, true) &&
+    transformCoordWithViewport(out, elTarget, _calcOut[0], _calcOut[1])
+  )
 }
 
 /**
@@ -80,108 +81,106 @@ export function transformLocalCoord(
  * @return {boolean} Whether transform successfully.
  */
 export function transformCoordWithViewport(
-    out: number[],
-    el: HTMLElement,
-    inX: number,
-    inY: number,
-    inverse?: boolean
+  out: number[],
+  el: HTMLElement,
+  inX: number,
+  inY: number,
+  inverse?: boolean
 ) {
-    if (el.getBoundingClientRect && env.domSupported && !isCanvasEl(el)) {
-        const saved = (el as any)[EVENT_SAVED_PROP] || ((el as any)[EVENT_SAVED_PROP] = {});
-        const markers = prepareCoordMarkers(el, saved);
-        const transformer = preparePointerTransformer(markers, saved, inverse);
-        if (transformer) {
-            transformer(out, inX, inY);
-            return true;
-        }
+  if (el.getBoundingClientRect && env.domSupported && !isCanvasEl(el)) {
+    const saved = (el as any)[EVENT_SAVED_PROP] || ((el as any)[EVENT_SAVED_PROP] = {})
+    const markers = prepareCoordMarkers(el, saved)
+    const transformer = preparePointerTransformer(markers, saved, inverse)
+    if (transformer) {
+      transformer(out, inX, inY)
+      return true
     }
-    return false;
+  }
+  return false
 }
 
 function prepareCoordMarkers(el: HTMLElement, saved: SavedInfo) {
-    let markers = saved.markers;
-    if (markers) {
-        return markers;
-    }
+  let markers = saved.markers
+  if (markers) {
+    return markers
+  }
 
-    markers = saved.markers = [];
-    const propLR = ['left', 'right'];
-    const propTB = ['top', 'bottom'];
+  markers = saved.markers = []
+  const propLR = ['left', 'right']
+  const propTB = ['top', 'bottom']
 
-    for (let i = 0; i < 4; i++) {
-        const marker = document.createElement('div');
-        const stl = marker.style;
-        const idxLR = i % 2;
-        const idxTB = (i >> 1) % 2;
-        stl.cssText = [
-            'position: absolute',
-            'visibility: hidden',
-            'padding: 0',
-            'margin: 0',
-            'border-width: 0',
-            'user-select: none',
-            'width:0',
-            'height:0',
-            // 'width: 5px',
-            // 'height: 5px',
-            propLR[idxLR] + ':0',
-            propTB[idxTB] + ':0',
-            propLR[1 - idxLR] + ':auto',
-            propTB[1 - idxTB] + ':auto',
-            ''
-        ].join('!important;');
-        el.appendChild(marker);
-        markers.push(marker);
-    }
+  for (let i = 0; i < 4; i++) {
+    const marker = document.createElement('div')
+    const stl = marker.style
+    const idxLR = i % 2
+    const idxTB = (i >> 1) % 2
+    stl.cssText = [
+      'position: absolute',
+      'visibility: hidden',
+      'padding: 0',
+      'margin: 0',
+      'border-width: 0',
+      'user-select: none',
+      'width:0',
+      'height:0',
+      // 'width: 5px',
+      // 'height: 5px',
+      propLR[idxLR] + ':0',
+      propTB[idxTB] + ':0',
+      propLR[1 - idxLR] + ':auto',
+      propTB[1 - idxTB] + ':auto',
+      ''
+    ].join('!important;')
+    el.appendChild(marker)
+    markers.push(marker)
+  }
 
-    return markers;
+  return markers
 }
 
 function preparePointerTransformer(markers: HTMLDivElement[], saved: SavedInfo, inverse?: boolean) {
-    const transformerName: 'invTrans' | 'trans' = inverse ? 'invTrans' : 'trans';
-    const transformer = saved[transformerName];
-    const oldSrcCoords = saved.srcCoords;
-    const srcCoords = [];
-    const destCoords = [];
-    let oldCoordTheSame = true;
+  const transformerName: 'invTrans' | 'trans' = inverse ? 'invTrans' : 'trans'
+  const transformer = saved[transformerName]
+  const oldSrcCoords = saved.srcCoords
+  const srcCoords = []
+  const destCoords = []
+  let oldCoordTheSame = true
 
-    for (let i = 0; i < 4; i++) {
-        const rect = markers[i].getBoundingClientRect();
-        const ii = 2 * i;
-        const x = rect.left;
-        const y = rect.top;
-        srcCoords.push(x, y);
-        oldCoordTheSame = oldCoordTheSame && oldSrcCoords && x === oldSrcCoords[ii] && y === oldSrcCoords[ii + 1];
-        destCoords.push(markers[i].offsetLeft, markers[i].offsetTop);
-    }
-    // Cache to avoid time consuming of `buildTransformer`.
-    return (oldCoordTheSame && transformer)
-        ? transformer
-        : (
-            saved.srcCoords = srcCoords,
-            saved[transformerName] = inverse
-                ? buildTransformer(destCoords, srcCoords)
-                : buildTransformer(srcCoords, destCoords)
-        );
+  for (let i = 0; i < 4; i++) {
+    const rect = markers[i].getBoundingClientRect()
+    const ii = 2 * i
+    const x = rect.left
+    const y = rect.top
+    srcCoords.push(x, y)
+    oldCoordTheSame = oldCoordTheSame && oldSrcCoords && x === oldSrcCoords[ii] && y === oldSrcCoords[ii + 1]
+    destCoords.push(markers[i].offsetLeft, markers[i].offsetTop)
+  }
+  // Cache to avoid time consuming of `buildTransformer`.
+  return oldCoordTheSame && transformer
+    ? transformer
+    : ((saved.srcCoords = srcCoords),
+      (saved[transformerName] = inverse
+        ? buildTransformer(destCoords, srcCoords)
+        : buildTransformer(srcCoords, destCoords)))
 }
 
 export function isCanvasEl(el: HTMLElement): el is HTMLCanvasElement {
-    return el.nodeName.toUpperCase() === 'CANVAS';
+  return el.nodeName.toUpperCase() === 'CANVAS'
 }
 
-const replaceReg = /([&<>"'])/g;
+const replaceReg = /([&<>"'])/g
 const replaceMap: Dictionary<string> = {
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    '\'': '&#39;'
-};
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;'
+}
 
 export function encodeHTML(source: string): string {
-    return source == null
-        ? ''
-        : (source + '').replace(replaceReg, function (str, c) {
-            return replaceMap[c];
-        });
+  return source == null
+    ? ''
+    : (source + '').replace(replaceReg, function (str, c) {
+        return replaceMap[c]
+      })
 }

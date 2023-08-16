@@ -455,6 +455,7 @@ class Element<Props extends ElementProps = ElementProps> {
   }
 
   /**
+   * 漂移，在拖动的时候更新位置.
    * Drift element
    * @param {number} dx dx on the global space
    * @param {number} dy dy on the global space
@@ -724,6 +725,8 @@ class Element<Props extends ElementProps = ElementProps> {
     this.markRedraw()
   }
 
+  // !设置元素属性。需要注意的是，应该始终调用该方法来修改属性，
+  // !而不是直接 element.xxx = ... 这样的形式，因为后者不会重绘物体。
   attr(keyOrObj: Props): this
   attr<T extends keyof Props>(keyOrObj: T, value: Props[T]): this
   attr(keyOrObj: keyof Props | Props, value?: unknown): this {

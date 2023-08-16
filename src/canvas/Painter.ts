@@ -89,9 +89,13 @@ export default class CanvasPainter implements PainterBase {
 
   private _layers: { [key: number]: Layer } = {} // key is zlevel
 
+  /** 用于配置重绘属性 */
   private _layerConfig: { [key: number]: LayerConfig } = {} // key is zlevel
 
   /**
+   * 当根目录是一个画布并且有多个 zlevel 时，zrender 会进行合成.
+   * 如果是多层应用， 会创建一个 div 用来存放 canvas （可能是多个）
+     如果是单层应用的话，会直接将当前的 canvas 进行处理，并创建 Layer
    * zrender will do compositing when root is a canvas and have multiple zlevels.
    */
   private _needsManuallyCompositing = false
@@ -151,6 +155,8 @@ export default class CanvasPainter implements PainterBase {
 
     const layers = this._layers
 
+    // 判断 root 是否为单个 canvas 元素。如果是，则创建一个 Layer 实例，并将其作为主层；
+    // 如果不是，则创建一个 div 元素作为多层 canvas 的容器，并设置其宽高。
     if (!singleCanvas) {
       this._width = getSize(root, 0, opts)
       this._height = getSize(root, 1, opts)
@@ -206,6 +212,9 @@ export default class CanvasPainter implements PainterBase {
     return this._singleCanvas
   }
 
+  /**
+   * 获取 canvas 的上层 DOM ，如果是单层应用的话，返回 canvas 标签.
+   */
   getViewportRoot() {
     return this._domRoot
   }
